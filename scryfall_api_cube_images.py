@@ -5,14 +5,15 @@ import csv
 
 # --- Configuration ---
 DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads", "Scryfall_Images")
+# It's recommended to copy and paste the entire filepath for your CSV file for precision. If on Windows, the '\' characters in this filepath will need to be replaced with '/' before running the script to prevent errors.
 CSV_FILE = "data.csv" 
 
-# Set this to True to enable Rarity folders (Rarity -> Color -> Image)
-# Set this to False to sort only by Color (Color -> Image)
+# Set this to True to enable Rarity folders (Rarity -> Color -> Image). This option is useful when creating a set cube where rarities need to be separated out from one another to construct packs.
+# Set this to False to sort only by Color (Color -> Image). This option is enabled by default and is suitable for any non-set cube.
 SORT_BY_RARITY = False 
 
 HEADERS = {
-    "User-Agent": "MTGImageDownloader/1.0",
+    "User-Agent": "CubeAssetDownloader/1.0",
     "Accept": "image/png"
 }
 
@@ -46,6 +47,7 @@ def download_images():
 
                 # 3. Define the downloads for this row
                 download_tasks = [{"suffix": "", "url_params": "&face=front"}]
+                # This flag checks for the specific tag 'double-sided' to know when to look for the back side of a card. If you use a different tag, simply change it to the exact wording of your tag in the line below.
                 if "double-sided" in tags:
                     download_tasks.append({"suffix": "_back", "url_params": "&face=back"})
 

@@ -25,13 +25,13 @@ Adjust these variables at the top of the script to change its behavior:
 ---
 
 ### **CSV Requirements**
-The script expects a CSV file with the following header names (case-sensitive):
+The script expects a CSV file exported from CubeCobra with the following header names (case-sensitive):
 * **Set:** The 3-4 letter set code (e.g., `thb`, `war`).
 * **Collector Number:** The card number within the set.
 * **Rarity:** Used for folder naming (e.g., `Rare`, `Mythic`).
 * **Color:** Used for folder naming (e.g., `Blue`, `Red`, `Multicolor`).
-* **Tags:** Looked at for the `double-sided` keyword.
-
+* **tags:** Looked at for the `double-sided` keyword. the tag to identify which cards are double-sided must be added manually before export or to the CSV after export. CubeCobra doesn't flag these cards automatically.
+Any CSV with those headers will be suitable though if you want to make your own instead of using CubeCobra.
 ---
 
 ### **Execution Flow**

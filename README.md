@@ -44,6 +44,7 @@ Any CSV with those headers will be suitable though if you want to make your own 
     * Queues the **Back** face if "double-sided" is detected in the Tags.
 5.  **File Saving:** Saves files as `{set}_{number}.png` (and `{set}_{number}_back.png` for reverse sides).
 6.  **Error Handling:** Catches and reports network errors or missing files without stopping the entire batch.
+---
 
 ### **Cardsheet Optimization Mode**
 When CARDSHEET_CREATION_OPTIMIZED is enabled, the script ignores standard color/rarity sorting and prepares files for professional printing sheets:

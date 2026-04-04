@@ -21,6 +21,7 @@ Adjust these variables at the top of the script to change its behavior:
 | `DOWNLOAD_PATH` | The directory where images will be saved. | `~/Downloads/Scryfall_Images` |
 | `CSV_FILE` | The name of the input data file. | `"data.csv"` |
 | `SORT_BY_RARITY` | **Flag:** Set `True` to nest colors inside rarity folders; `False` for color folders only. | `False` |
+| `CARDSHEET_CREATION_OPTIMIZED` | **Flag:** Set `True` to ignore standard color/rarity sorting and prepare files for professional printing sheets. More detailed documentation included later. | `False` |
 
 ---
 
@@ -43,3 +44,10 @@ Any CSV with those headers will be suitable though if you want to make your own 
     * Queues the **Back** face if "double-sided" is detected in the Tags.
 5.  **File Saving:** Saves files as `{set}_{number}.png` (and `{set}_{number}_back.png` for reverse sides).
 6.  **Error Handling:** Catches and reports network errors or missing files without stopping the entire batch.
+
+### **Cardsheet Optimization Mode**
+When CARDSHEET_CREATION_OPTIMIZED is enabled, the script ignores standard color/rarity sorting and prepares files for professional printing sheets:
+* **Batching:** Images are grouped into subfolders of 69 cards each.
+* **Face Separation:** Fronts and Backs are strictly separated into different folder batches (e.g., Sheet_fronts_1, Sheet_backs_1).
+* **Sequential Naming:** Files are prefaced with a two-digit index (e.g., 01 thb_1.png through 69 thb_40.png) for exact placement.
+* **Automatic Assets:** Downloads ther card back to be used on the printing sheet from the provided GitHub URL and places a copy in every generated subfolder automatically.

@@ -75,7 +75,7 @@ def download_images():
             for row in reader:
                 set_code = row.get("Set", "").strip().lower()
                 collector_num = row.get("Collector Number", "").strip()
-                tags = row.get("Tags", "").strip().lower()
+                tags = row.get("tags", "").strip().lower()
 
                 if not set_code or not collector_num:
                     continue

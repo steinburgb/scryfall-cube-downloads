@@ -6,20 +6,20 @@ import shutil
 
 # --- Configuration ---
 DOWNLOAD_PATH = os.path.join(os.path.expanduser("~"), "Downloads", "Scryfall_Images")
-CSV_FILE = "data.csv" 
+CSV_FILE = "data.csv" # Use the full filepath here for specificity. If in Windows, replace all \ characters in the filepath with / to avoid errors.
 GITHUB_ASSET_URL = "https://raw.githubusercontent.com/steinburgb/scryfall-cube-downloads/refs/heads/main/00 Back.png"
 
 # --- Flags ---
-SORT_BY_RARITY = False
-CARDSHEET_CREATION_OPTIMIZED = True  # Set to True for sequential 69-card batches
+SORT_BY_RARITY = False # If False, sorts by colour only. If true, sorts by rarity first, then colour. This option is intended for set cubes where rarity matters for constructing packs.
+CARDSHEET_CREATION_OPTIMIZED = True  # Set to True for unsorted sequential 69-card batches, ignoring sort preferences detailed above. This prepares cards directly for card sheet creation.
 
 HEADERS = {
-    "User-Agent": "MTGImageDownloader/1.0",
+    "User-Agent": "MTGCubeImageDownloader/1.0",
     "Accept": "image/png"
 }
 
 def download_asset(target_dir):
-    """Downloads the GitHub asset into the specified folder."""
+    # Downloads the GitHub asset into the specified folder.
     asset_name = GITHUB_ASSET_URL.split("/")[-1]
     path = os.path.join(target_dir, asset_name)
     if not os.path.exists(path):
@@ -33,7 +33,7 @@ def download_asset(target_dir):
             print(f"\nError downloading GitHub asset: {e}")
 
 def get_target_path(row, is_back, counts):
-    """Determines the folder and filename based on active flags."""
+    # Determines the folder and filename based on active flags.
     set_code = row.get("Set", "").strip().lower()
     num = row.get("Collector Number", "").strip()
     

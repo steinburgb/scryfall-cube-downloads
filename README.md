@@ -50,5 +50,5 @@ Any CSV with those headers will be suitable though if you want to make your own 
 When CARDSHEET_CREATION_OPTIMIZED is enabled, the script ignores standard color/rarity sorting and prepares files for professional printing sheets:
 * **Batching:** Images are grouped into subfolders of 69 cards each.
 * **Face Separation:** Fronts and Backs are strictly separated into different folder batches (e.g., Sheet_fronts_1, Sheet_backs_1).
-* **Sequential Naming:** Files are prefaced with a two-digit index (e.g., 01 thb_1.png through 69 thb_40.png) for exact placement.
+* **Renaming:** Files are prefaced with a two-digit number followed by an x and a space (e.g., 01x thb_1.png) to tell TTS's cardsheet application how many of each card to include on the sheet.
 * **Automatic Assets:** Downloads ther card back to be used on the printing sheet from the provided GitHub URL and places a copy in every generated subfolder automatically.

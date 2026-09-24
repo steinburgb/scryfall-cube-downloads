@@ -11,7 +11,7 @@ A Python script that downloads Magic: The Gathering card images from the [Scryfa
 
 ---
 
-## Usage
+## Usage Examples
 
 ```
 python scryfall_api_cube_images.py cube.csv

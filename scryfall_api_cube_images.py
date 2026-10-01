@@ -10,6 +10,11 @@ PNG images into one of three layouts:
   sheets   <out>/Sheet_fronts_N/<slot> <set>_<number>.png        (69 per folder)
            <out>/Sheet_backs_N/<slot> <set>_<number>_back.png
 
+--tokens also fetches the tokens, emblems, dungeons and meld results the
+cube's cards create (from Scryfall's "all_parts" data), de-duplicated, into Sheet_tokens_N
+(or a Tokens folder in colour/rarity mode). A "copies" column in the CSV puts
+a card in that many slots; when the column is absent every card gets one.
+
 In sheets mode, --assemble composes each folder into one grid image for
 Tabletop Simulator (<out>/cardsheets/<folder>.png) with the card back in the
 last slot, plus a JSON file recording the grid size and which card is in
@@ -65,7 +70,7 @@ MAX_COLS, MAX_ROWS = 10, 7          # Tabletop Simulator's largest card sheet (7
 SLOT_FILE_RE = re.compile(r"^(\d+) (.+)\.png$")   # "<slot> <set>_<number>[_back].png"
 
 MANIFEST_FIELDS = [
-    "file", "name", "set", "collector_number", "scryfall_id", "face",
+    "file", "name", "set", "collector_number", "scryfall_id", "face", "kind", "created_by",
     "source_url", "downloaded_at", "sha256",
 ]
 
@@ -74,6 +79,7 @@ MANIFEST_FIELDS = [
 SHEET_FIELDS = [
     "sheet", "columns", "rows", "tile_width", "tile_height", "sheet_width", "sheet_height",
     "slot", "column", "row", "file", "name", "set", "collector_number", "scryfall_id", "face",
+    "kind", "created_by",
 ]
 # One row per sheet in cardsheets/sheets.csv.
 SHEET_INDEX_FIELDS = [
@@ -104,6 +110,8 @@ def parse_args(argv=None):
                    help="CSV column used for rarity folder names")
     p.add_argument("--delay", type=float, default=DEFAULT_DELAY,
                    help="Seconds to wait between requests")
+    p.add_argument("--tokens", action="store_true",
+                   help="Also download the tokens, emblems, dungeons and meld results the cube's cards use")
     p.add_argument("--skip-maybeboard", action="store_true",
                    help="Skip rows whose \"maybeboard\" column is true (CubeCobra exports include them)")
     p.add_argument("--force", action="store_true",
@@ -194,6 +202,7 @@ def read_cube_csv(path, color_column="Color", rarity_column="Rarity", skip_maybe
     Uses utf-8-sig so a leading byte-order mark (BOM) does not get glued
     onto the first column name. Header lookup is case-insensitive.
     With skip_maybeboard=True, rows whose "maybeboard" cell is true are left out.
+    An optional "copies" column sets how many sheet slots a card takes (default 1).
     """
     rows = []
     skipped_maybe = 0
@@ -217,12 +226,23 @@ def read_cube_csv(path, color_column="Color", rarity_column="Rarity", skip_maybe
             if skip_maybeboard and get(row, "maybeboard").lower() in ("true", "1", "yes"):
                 skipped_maybe += 1
                 continue
+            copies_text = get(row, "copies")
+            try:
+                copies = int(copies_text) if copies_text else 1
+                if copies < 1:
+                    raise ValueError
+            except ValueError:
+                print(f"Line {line_no}: copies value {copies_text!r} is not a positive whole number; using 1")
+                copies = 1
             rows.append({
                 "set": set_code,
                 "collector_number": number,
                 "rarity": get(row, rarity_column) or "Unknown",
                 "color": get(row, color_column) or "Unknown",
                 "tagged_double_sided": "double-sided" in get(row, "tags").lower(),
+                "copies": copies,
+                "kind": "card",
+                "created_by": "",
                 "line": line_no,
             })
     if skipped_maybe:
@@ -259,6 +279,85 @@ def lookup_cards(session, rows, delay):
     return found, not_found
 
 
+def related_token_ids(cards_in_order):
+    """
+    Walk the cube's cards in order and collect the Scryfall IDs of the
+    tokens, emblems, dungeons and meld results they create or use. Returns
+    an ordered dict id -> [names of the cube cards that create it].
+    Scryfall lists these under "all_parts" with a "component" of "token",
+    "meld_result" or "combo_piece". "combo_piece" is a catch-all that also
+    covers real cards (combo partners, the card itself), so it is only
+    accepted when the type line starts with "Emblem" or "Dungeon".
+    """
+    wanted = {}
+    for card in cards_in_order:
+        for part in card.get("all_parts", []):
+            if part.get("id") == card["id"]:
+                continue
+            component = part.get("component", "")
+            type_line = part.get("type_line", "")
+            is_token = component == "token"
+            is_emblem = component == "combo_piece" and type_line.startswith(("Emblem", "Dungeon"))
+            is_meld = component == "meld_result"
+            if not (is_token or is_emblem or is_meld):
+                continue
+            wanted.setdefault(part["id"], [])
+            if card["name"] not in wanted[part["id"]]:
+                wanted[part["id"]].append(card["name"])
+    return wanted
+
+
+def lookup_tokens(session, wanted, delay):
+    """
+    Fetch the related cards by Scryfall ID (75 per request) and de-duplicate
+    them by oracle_id, so a token created by many cards (a 1/1 Soldier, a
+    Treasure) is downloaded once. The first printing seen, in cube order, is
+    kept. Returns a list of token rows in the same shape as CSV rows.
+    """
+    ids = list(wanted)
+    fetched = {}
+    for i in range(0, len(ids), COLLECTION_BATCH_SIZE):
+        batch = ids[i:i + COLLECTION_BATCH_SIZE]
+        print(f"Looking up tokens {i + 1}-{i + len(batch)} of {len(ids)}...", end="\r")
+        body = {"identifiers": [{"id": tid} for tid in batch]}
+        res = request_with_retry(session, "POST", SCRYFALL_COLLECTION_URL, delay, json=body)
+        for card in res.json().get("data", []):
+            fetched[card["id"]] = card
+    if ids:
+        print()
+
+    rows, seen_oracle = [], {}
+    for tid in ids:                          # cube order
+        card = fetched.get(tid)
+        if card is None:
+            print(f"Token {tid} not found on Scryfall")
+            continue
+        key = card.get("oracle_id") or tid
+        if key in seen_oracle:
+            # Same token from another card: just record the extra creator.
+            for name in wanted[tid]:
+                if name not in seen_oracle[key]["created_by_list"]:
+                    seen_oracle[key]["created_by_list"].append(name)
+            continue
+        row = {
+            "set": card["set"].lower(),
+            "collector_number": card["collector_number"],
+            "rarity": "Tokens",
+            "color": "Tokens",
+            "tagged_double_sided": False,
+            "copies": 1,
+            "kind": "token",
+            "created_by_list": list(wanted[tid]),
+            "line": 0,
+            "card": card,
+        }
+        seen_oracle[key] = row
+        rows.append(row)
+    for row in rows:
+        row["created_by"] = "; ".join(row.pop("created_by_list"))
+    return rows
+
+
 def card_faces(card):
     """
     Return a list of (face_label, png_url) for a card.
@@ -287,18 +386,27 @@ def target_path(args, row, face, sheet_counts):
     suffix = "_back" if face == "back" else ""
 
     if args.mode == "sheets":
-        key = "backs" if face == "back" else "fronts"
+        key = sheet_key(row, face)
         folder_num = sheet_counts[key] // args.sheet_size + 1
         slot = sheet_counts[key] % args.sheet_size + 1          # 1-based position on the sheet
         folder = args.out / f"Sheet_{key}_{folder_num}"
         # Files are named by slot so a plain directory listing shows the sheet order.
         return folder / f"{slot:02d} {base}{suffix}.png"
 
-    if args.mode == "rarity":
+    if row["kind"] == "token":
+        folder = args.out / "Tokens"
+    elif args.mode == "rarity":
         folder = args.out / row["rarity"] / row["color"]
     else:
         folder = args.out / row["color"]
     return folder / f"{base}{suffix}.png"
+
+
+def sheet_key(row, face):
+    """Which family of sheet folders a face belongs to: fronts, backs, tokens, tokens_backs."""
+    if row["kind"] == "token":
+        return "tokens_backs" if face == "back" else "tokens"
+    return "backs" if face == "back" else "fronts"
 
 
 def ensure_card_back(session, folder, delay, prepared_back):
@@ -402,6 +510,8 @@ def assemble_sheet(folder, out_dir, sheets_dir, grid, tile_width, manifest_index
             "collector_number": info.get("collector_number", ""),
             "scryfall_id": info.get("scryfall_id", ""),
             "face": info.get("face", ""),
+            "kind": info.get("kind", ""),
+            "created_by": info.get("created_by", ""),
         }
 
     entries = []
@@ -500,57 +610,88 @@ def main(argv=None):
     for set_code, number in not_found:
         print(f"Not found on Scryfall: {set_code}/{number}")
 
-    local_back = Path(__file__).resolve().parent / CARD_BACK_NAME
-    sheet_counts = {"fronts": 0, "backs": 0}
     downloaded, skipped, failed = 0, 0, []
-    manifest_rows = []
 
+    # Build the work list: cube cards in CSV order, then (optionally) their tokens.
+    items = []
     for row in rows:
         card = cards.get((row["set"], row["collector_number"]))
         if card is None:
             failed.append((row, "not found on Scryfall"))
             continue
-
-        faces = card_faces(card)
-        if row["tagged_double_sided"] and len(faces) < 2:
+        if row["tagged_double_sided"] and len(card_faces(card)) < 2:
             print(f"\nWarning: {card['name']} is tagged double-sided but Scryfall has only one face.")
+        items.append((row, card))
 
-        for face, url in faces:
-            dest = target_path(args, row, face, sheet_counts)
+    if args.tokens:
+        wanted = related_token_ids([card for _, card in items])
+        try:
+            token_rows = lookup_tokens(session, wanted, args.delay)
+        except RuntimeError as e:
+            sys.exit(f"Error: could not reach Scryfall. {e}")
+        print(f"{len(token_rows)} distinct token(s)/emblem(s)/dungeon(s)/meld result(s) to fetch")
+        items.extend((row, row.pop("card")) for row in token_rows)
 
-            # In sheets mode, drop the card back into each new folder.
-            if args.mode == "sheets" and not args.no_card_back:
-                ensure_card_back(session, dest.parent, args.delay, local_back)
+    local_back = Path(__file__).resolve().parent / CARD_BACK_NAME
+    sheet_counts = {"fronts": 0, "backs": 0, "tokens": 0, "tokens_backs": 0}
+    manifest_rows = []
 
-            if dest.exists() and not args.force:
-                skipped += 1
+    def record(dest, card, face, row, url, sha):
+        manifest_rows.append({
+            "file": str(dest.relative_to(args.out)),
+            "name": card["name"],
+            "set": card["set"],
+            "collector_number": card["collector_number"],
+            "scryfall_id": card["id"],
+            "face": face,
+            "kind": row["kind"],
+            "created_by": row["created_by"],
+            "source_url": url,
+            "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+            "sha256": sha,
+        })
+
+    for row, card in items:
+        for face, url in card_faces(card):
+            # Copies only mean something on a sheet; a colour folder holds one file per card.
+            copies = row["copies"] if args.mode == "sheets" else 1
+            first_dest = None
+            for _ in range(copies):
+                dest = target_path(args, row, face, sheet_counts)
+
+                # In sheets mode, drop the card back into each new folder.
+                if args.mode == "sheets" and not args.no_card_back:
+                    ensure_card_back(session, dest.parent, args.delay, local_back)
+
+                if dest.exists() and not args.force:
+                    skipped += 1
+                    if args.mode == "sheets":
+                        sheet_counts[sheet_key(row, face)] += 1
+                    if first_dest is None:
+                        first_dest = dest
+                    continue
+
+                try:
+                    if first_dest is not None:
+                        # Extra copy of a card already on disk: duplicate the file, no download.
+                        dest.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(first_dest, dest)
+                        sha = hashlib.sha256(dest.read_bytes()).hexdigest()
+                    else:
+                        print(f"Downloading: {dest.name}        ", end="\r")
+                        sha = download_file(session, url, dest, args.delay)
+                except Exception as e:
+                    print(f"\nError downloading {card['name']} ({face}): {e}")
+                    failed.append((row, f"{face}: {e}"))
+                    break
+
+                downloaded += 1
                 if args.mode == "sheets":
-                    sheet_counts["backs" if face == "back" else "fronts"] += 1
-                continue
-
-            print(f"Downloading: {dest.name}        ", end="\r")
-            try:
-                sha = download_file(session, url, dest, args.delay)
-            except Exception as e:
-                print(f"\nError downloading {card['name']} ({face}): {e}")
-                failed.append((row, f"{face}: {e}"))
-                continue
-
-            downloaded += 1
-            if args.mode == "sheets":
-                # Only count a slot as used once the file is really on disk.
-                sheet_counts["backs" if face == "back" else "fronts"] += 1
-            manifest_rows.append({
-                "file": str(dest.relative_to(args.out)),
-                "name": card["name"],
-                "set": card["set"],
-                "collector_number": card["collector_number"],
-                "scryfall_id": card["id"],
-                "face": face,
-                "source_url": url,
-                "downloaded_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
-                "sha256": sha,
-            })
+                    # Only count a slot as used once the file is really on disk.
+                    sheet_counts[sheet_key(row, face)] += 1
+                if first_dest is None:
+                    first_dest = dest
+                record(dest, card, face, row, url, sha)
 
     # Append this run's downloads to the manifest (header only when the file is new).
     if manifest_rows:
@@ -566,7 +707,8 @@ def main(argv=None):
     if failed:
         print("Failed cards:")
         for row, reason in failed:
-            print(f"  line {row['line']}: {row['set']}/{row['collector_number']} - {reason}")
+            where = f"line {row['line']}" if row["line"] else f"token ({row['created_by']})"
+            print(f"  {where}: {row['set']}/{row['collector_number']} - {reason}")
 
     if args.assemble:
         print()

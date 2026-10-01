@@ -83,7 +83,7 @@ Optional columns:
 * **maybeboard:** CubeCobra exports include maybeboard cards with this column set to `true`. Pass `--skip-maybeboard` to leave them out.
 * **tags:** no longer needed. Double-faced cards are detected from Scryfall's data. If a card is tagged `double-sided` but Scryfall reports only one face, the script prints a warning so you can check the row.
 
-A CubeCobra CSV export works as-is; see `example.csv` for the expected shape.
+A CubeCobra CSV export works as-is; see `example.csv` for the expected shape. It includes two double-faced cards, a token maker, an emblem maker and a dungeon card, so `python scryfall_api_cube_images.py example.csv --mode sheets --tokens --assemble` exercises every path.
 
 ---
 

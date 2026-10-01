@@ -11,7 +11,7 @@ A Python script that downloads Magic: The Gathering card images from the [Scryfa
 
 ---
 
-## Usage Examples
+## Usage
 
 ```
 python scryfall_api_cube_images.py cube.csv
@@ -30,6 +30,7 @@ python scryfall_api_cube_images.py --help
 | `--color-column NAME` | CSV column used for colour folder names. | `Color` |
 | `--rarity-column NAME` | CSV column used for rarity folder names. | `Rarity` |
 | `--delay SECONDS` | Pause between requests. | `0.1` |
+| `--tokens` | Also download the tokens, emblems, dungeons and meld results the cube's cards use. | off |
 | `--skip-maybeboard` | Skip rows whose `maybeboard` column is `true`. | off |
 | `--force` | Re-download files that already exist. | off |
 | `--no-card-back` | In `sheets` mode, don't copy the card back into each folder. | off |
@@ -54,13 +55,15 @@ Paths can be given exactly as they appear on your system; there is no need to ch
 * Files are named by their slot on the sheet (`01 thb_1.png`, `02 thb_2.png`, ...), so a directory listing shows the sheet order.
 * A copy of the card back (`00 Back.png`, 745×1040 to match Scryfall's PNGs) is placed in every folder.
 
+**Tokens.** With `--tokens`, the script reads each card's related parts from Scryfall (its `all_parts` list) and collects the tokens, emblems, dungeons and meld results the cube needs. Scryfall's `combo_piece` relationship also links real cards (combo partners, the card itself), so from that category only objects whose type line starts with `Emblem` or `Dungeon` are taken; meld partners are skipped because they are cube cards in their own right. These are de-duplicated by Scryfall's `oracle_id`, so a token made by many cards (a Treasure, a 1/1 Soldier) is fetched once, using the first printing encountered in CSV order. Tokens go into their own `Sheet_tokens_N` folders in `sheets` mode (with `Sheet_tokens_backs_N` for the rare double-faced token), or a `Tokens` folder otherwise. The manifests record `kind` (`card` or `token`) and, for tokens, `created_by`: the cube cards that make them, `;`-separated.
+
 **Assembling sheets.** With `--assemble` (or `--assemble-only` to rebuild from folders already downloaded), each `Sheet_*` folder is composed into one image in `<out>/cardsheets/`:
 * Cards are placed in slot order, left to right, top to bottom. The card back goes in the last slot of the grid, which Tabletop Simulator treats as the hidden back; any slots between are transparent.
 * `--grid auto` picks the smallest near-square grid that fits (a full 69-card folder is 10×7; a 42-card remainder is 7×7). `--grid 10x7` makes every sheet the same size.
 * Each card is drawn at `--tile-width` pixels wide (default 488, giving 4880×4767 for a full 10×7 sheet). This is a resolution setting, not compression: sheets are always lossless PNGs, and the source card images are untouched. Smaller tiles mean smaller textures for Tabletop Simulator to load; `--tile-width 745` keeps Scryfall's native size (7450×7280 per full sheet). Rebuild at another width any time with `--assemble-only --tile-width N`.
 * Two CSV manifests are written to `cardsheets/`:
   * `sheets.csv`: one row per sheet with columns, rows (the numbers TTS asks for on import), card count, back slot and pixel size.
-  * `<sheet>.csv` (e.g. `Sheet_fronts_1.csv`): one row per slot with its position (slot, column, row), the source file, card name, set, collector number, Scryfall ID and face. The last row is the card back. Sheet-level values repeat on every row so the file stands alone in a spreadsheet.
+  * `<sheet>.csv` (e.g. `Sheet_fronts_1.csv`): one row per slot with its position (slot, column, row), the source file, card name, set, collector number, Scryfall ID, face, kind and (for tokens) the creating cards. The last row is the card back. Sheet-level values repeat on every row so the file stands alone in a spreadsheet.
 
 Back faces of double-faced cards are saved as `<set>_<number>_back.png`.
 
@@ -76,6 +79,7 @@ Only two columns are required (header names are not case-sensitive):
 Optional columns:
 
 * **Color** and **Rarity:** used for folder names in `colour` and `rarity` modes. Missing or empty values fall back to `Unknown`. Use `--color-column` / `--rarity-column` if your export names them differently (e.g. `--color-column "Color Category"`).
+* **copies:** how many slots a card takes on a sheet (whole number, default 1). The column can be left out entirely, and blank or invalid values count as 1. Extra copies duplicate the downloaded file rather than fetching it again. Ignored outside `sheets` mode, where each card is one file.
 * **maybeboard:** CubeCobra exports include maybeboard cards with this column set to `true`. Pass `--skip-maybeboard` to leave them out.
 * **tags:** no longer needed. Double-faced cards are detected from Scryfall's data. If a card is tagged `double-sided` but Scryfall reports only one face, the script prints a warning so you can check the row.
 
@@ -101,5 +105,5 @@ Set `SCRYFALL_LIVE=1` to also run one small download of five cards against the r
 2. **Look up cards.** Set and collector-number pairs are sent to Scryfall's `/cards/collection` endpoint in batches of 75. This returns each card's name, Scryfall ID and image links, and tells the script whether the card has a separate back face.
 3. **Download images.** Each face is fetched from the image link Scryfall returned. Downloads are written to a temporary `.part` file and renamed on success, so an interrupted run never leaves a broken image. Files that already exist are skipped, so a run can be resumed.
 4. **Handle errors.** Requests time out after 30 seconds. Rate-limit (429) and server errors are retried with a backoff, honouring Scryfall's `Retry-After` header. A pause of 100 ms is kept between requests, including after failures, per Scryfall's guidelines.
-5. **Write the manifest.** `manifest.csv` in the output folder gets one row per downloaded file: file path, card name, set, collector number, Scryfall ID, face, source URL, download time (UTC) and SHA-256 checksum. Rows are appended on each run.
+5. **Write the manifest.** `manifest.csv` in the output folder gets one row per downloaded file: file path, card name, set, collector number, Scryfall ID, face, kind, creating cards (tokens only), source URL, download time (UTC) and SHA-256 checksum. Rows are appended on each run.
 6. **Report.** A summary of downloaded, skipped and failed cards is printed at the end, with the CSV line number of each failure. The exit code is `1` if anything failed.
